@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🎬 Mini Movies Platform</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+#ad-overlay{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);color:white;display:none;justify-content:center;align-items:center;text-align:center;padding:20px;z-index:50;flex-direction:column;}
+.video-container {position: relative;}
+.thumbnail-hover:hover {transform: scale(1.05); transition: transform 0.2s ease;}
+.loading {animation: spin 1s linear infinite;}
+@keyframes spin {0% {transform: rotate(0deg);} 100% {transform: rotate(360deg);}}
+</style>
+</head>
+<body class="bg-gray-100">
+
+<div class="max-w-4xl mx-auto p-4">
+<header class="mb-6">
+<h1 class="text-3xl font-bold text-center mb-2">🎬 Mini Movies & Web Series</h1>
+<p class="text-center text-gray-600">Premium Movies, Drama & Web Series Collection</p>
+</header>
+
+<!-- Video Categories -->
+<div class="mb-6">
+<div class="flex flex-wrap gap-2 justify-center">
+<button onclick="filterVideos('all')" class="bg-blue-500 text-white px-4 py-2 rounded-full text-sm filter-btn active">All</button>
+<button onclick="filterVideos('movie')" class="bg-gray-300 text-gray-700 px-4 py-2 rounded-full text-sm filter-btn">Movies</button>
+<button onclick="filterVideos('drama')" class="bg-gray-300 text-gray-700 px-4 py-2 rounded-full text-sm filter-btn">Drama</button>
+<button onclick="filterVideos('series')" class="bg-gray-300 text-gray-700 px-4 py-2 rounded-full text-sm filter-btn">Web Series</button>
+</div>
+</div>
+
+<!-- Video Grid -->
+<div id="video-list" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6"></div>
+
+<!-- Video Player -->
+<div id="player-section" class="hidden">
+<div class="video-container bg-black rounded-lg overflow-hidden shadow-lg">
+<video id="myVideo" width="100%" height="300" controls class="w-full">
+<source src="" type="video/mp4">
+Your browser does not support the video tag.
+</video>
+<div id="ad-overlay"></div>
+</div>
+
+<div class="mt-4 bg-white p-4 rounded-lg shadow">
+<h3 id="current-video-title" class="text-xl font-bold mb-2"></h3>
+<p id="current-video-desc" class="text-gray-600"></p>
+<div class="flex items-center justify-between mt-4">
+<span id="video-views" class="text-sm text-gray-500"></span>
+<button onclick="closePlayer()" class="bg-red-500 text-white px-4 py-2 rounded">Close Player</button>
+</div>
+</div>
+</div>
+
+<!-- Banner Ad Space -->
+<div id="ad-banner" class="mt-6 text-center"></div>
+
+<!-- Loading Indicator -->
+<div id="loading" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+<div class="bg-white p-6 rounded-lg text-center">
+<div class="loading w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+<p>Loading video...</p>
+</div>
+</div>
+
+</div>
+
+<script src="ads_manager.js"></script>
+<script>
+let allVideos = [];
+let currentFilter = 'all';
+
+// Load videos from API
+async function loadVideos() {
+    try {
+        const response = await fetch('/api/videos');
+        const data = await response.json();
+        allVideos = data.videos || [];
+        renderVideoList();
+        loadBannerAd();
+    } catch (error) {
+        console.error('Error loading videos:', error);
+        // Fallback demo data
+        allVideos = [
+            { id: 1, title: "Demo Movie 1", url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", thumbnail: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg", description: "Demo movie for testing", views: 100, category: "movie" },
+            { id: 2, title: "Demo Drama 1", url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4", thumbnail: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ElephantsDream.jpg", description: "Demo drama for testing", views: 75, category: "drama" }
+        ];
+        renderVideoList();
+    }
+}
+
+function renderVideoList() {
+    const videoListDiv = document.getElementById("video-list");
+    videoListDiv.innerHTML = "";
+    
+    const filteredVideos = currentFilter === 'all' ? allVideos : allVideos.filter(v => v.category === currentFilter);
+    
+    if (filteredVideos.length === 0) {
+        videoListDiv.innerHTML = '<div class="col-span-full text-center text-gray-500 py-8">No videos found</div>';
+        return;
+    }
+    
+    filteredVideos.forEach((vid) => {
+        let div = document.createElement("div");
+        div.className = "bg-white rounded-lg shadow overflow-hidden cursor-pointer thumbnail-hover";
+        div.innerHTML = `
+            <div class="relative">
+                <img src="${vid.thumbnail || '/assets/default-thumb.jpg'}" class="w-full h-32 object-cover" alt="${vid.title}">
+                <div class="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white text-xs px-2 py-1 rounded">
+                    👁 ${vid.views || 0}
+                </div>
+            </div>
+            <div class="p-3">
+                <h3 class="font-semibold text-sm line-clamp-2">${vid.title}</h3>
+                <p class="text-xs text-gray-500 mt-1">${vid.category || 'Video'}</p>
+            </div>
+        `;
+        div.onclick = () => playSelectedVideo(vid);
+        videoListDiv.appendChild(div);
+    });
+}
+
+function filterVideos(category) {
+    currentFilter = category;
+    
+    // Update active button
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.remove('active', 'bg-blue-500', 'text-white');
+        btn.classList.add('bg-gray-300', 'text-gray-700');
+    });
+    event.target.classList.add('active', 'bg-blue-500', 'text-white');
+    event.target.classList.remove('bg-gray-300', 'text-gray-700');
+    
+    renderVideoList();
+}
+
+function playSelectedVideo(video) {
+    const myVideo = document.getElementById("myVideo");
+    const playerSection = document.getElementById("player-section");
+    const currentTitle = document.getElementById("current-video-title");
+    const currentDesc = document.getElementById("current-video-desc");
+    const videoViews = document.getElementById("video-views");
+    
+    // Update video info
+    currentTitle.textContent = video.title;
+    currentDesc.textContent = video.description || "No description available";
+    videoViews.textContent = `Views: ${video.views || 0}`;
+    
+    // Show player
+    playerSection.classList.remove("hidden");
+    playerSection.scrollIntoView({ behavior: 'smooth' });
+    
+    // Update view count
+    updateVideoViews(video.id);
+    
+    // Set up video auto-resume (from template requirement)
+    window.currentVideoId = video.id;
+    setupVideoAutoResume(myVideo, video.id);
+    
+    // Start video with ads
+    playVideoWithAds(video.url);
+}
+
+// Video Auto Resume functionality (from template)
+function setupVideoAutoResume(videoElement, videoId) {
+    // Note: Resume position restore is now handled in ads_manager.js during video loading
+    // This function now only handles position saving during playback
+    
+    // Save position every 5 seconds during playback
+    let saveInterval;
+    const handlePlay = () => {
+        saveInterval = setInterval(() => {
+            if (!videoElement.paused && !videoElement.ended) {
+                localStorage.setItem(`video_position_${videoId}`, videoElement.currentTime);
+            }
+        }, 5000);
+    };
+    
+    const handlePause = () => {
+        if (saveInterval) clearInterval(saveInterval);
+        localStorage.setItem(`video_position_${videoId}`, videoElement.currentTime);
+    };
+    
+    const handleEnded = () => {
+        if (saveInterval) clearInterval(saveInterval);
+        localStorage.removeItem(`video_position_${videoId}`); // Clear completed videos
+    };
+    
+    // Remove existing listeners to avoid duplicates
+    videoElement.removeEventListener('play', handlePlay);
+    videoElement.removeEventListener('pause', handlePause);
+    videoElement.removeEventListener('ended', handleEnded);
+    
+    // Add new listeners
+    videoElement.addEventListener('play', handlePlay);
+    videoElement.addEventListener('pause', handlePause);
+    videoElement.addEventListener('ended', handleEnded);
+    
+    // Save position when user leaves the page
+    const handleBeforeUnload = () => {
+        if (!videoElement.paused && !videoElement.ended) {
+            localStorage.setItem(`video_position_${videoId}`, videoElement.currentTime);
+        }
+    };
+    
+    // Remove existing beforeunload listener to avoid duplicates
+    window.removeEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+}
+
+function closePlayer() {
+    const playerSection = document.getElementById("player-section");
+    const myVideo = document.getElementById("myVideo");
+    
+    playerSection.classList.add("hidden");
+    myVideo.pause();
+    myVideo.src = "";
+    
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function updateVideoViews(videoId) {
+    try {
+        const response = await fetch(`/api/videos/${videoId}/view`, { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            // Update local views count
+            const video = allVideos.find(v => v.id === videoId);
+            if (video) video.views = (video.views || 0) + 1;
+        }
+    } catch (error) {
+        console.error('Error updating views:', error);
+    }
+}
+
+// Initialize the app
+document.addEventListener('DOMContentLoaded', () => {
+    loadVideos();
+    showPropellerPopunder();
+});
+</script>
+
+</body>
+</html>
