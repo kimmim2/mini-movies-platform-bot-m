@@ -3,7 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const TelegramBot = require('node-telegram-bot-api');
 const path = require('path');
-const fetch = require('node-fetch'); // <-- নতুন লাইব্রেরি যুক্ত
+const fetch = require('node-fetch'); // <-- Node-fetch লাইব্রেরি স্ট্রিমিং এর জন্য দরকার
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -26,7 +26,8 @@ let videos = [
         description: "This is a private video streamed through the bot proxy.",
         views: 150,
         category: "movie",
-        addedAt: new Date().toISOString()
+        addedAt: new Date().toISOString(),
+        addedBy: "System"
     },
     {
         id: 2,
@@ -37,7 +38,8 @@ let videos = [
         description: "A short computer-animated film produced by the Blender Institute.",
         views: 89,
         category: "drama",
-        addedAt: new Date().toISOString()
+        addedAt: new Date().toISOString(),
+        addedBy: "System"
     }
     // আপনি আপনার সব ভিডিওর File ID এবং Size এখানে যুক্ত করবেন
 ];
@@ -136,7 +138,7 @@ app.get('/api/videos', (req, res) => {
 
 // /api/videos (POST) রুট আপডেট: এখন URL এর বদলে File ID এবং Size নেবে
 app.post('/api/videos', (req, res) => {
-    const { title, telegram_file_id, thumbnail, description, size } = req.body;
+    const { title, telegram_file_id, thumbnail, description, size, addedBy } = req.body;
     const video = {
         id: Date.now(),
         title,
@@ -146,7 +148,8 @@ app.post('/api/videos', (req, res) => {
         description: description || '',
         views: 0,
         category: 'movie', // Default
-        addedAt: new Date().toISOString()
+        addedAt: new Date().toISOString(),
+        addedBy: addedBy || "API"
     };
     videos.push(video);
     res.json({ success: true, video });
@@ -180,7 +183,6 @@ if (bot) {
     }
 
     bot.onText(/\/start/, (msg) => {
-        // ... (existing /start logic) ...
         const chatId = msg.chat.id;
         const welcomeMsg = `🎬 Mini Movies Bot এ স্বাগতম!
 
@@ -197,7 +199,6 @@ Admin Commands (শুধু Admin দের জন্য):
         bot.sendMessage(chatId, welcomeMsg);
     });
 
-    // ... (existing /help, /website logic) ...
     bot.onText(/\/help/, (msg) => {
         const chatId = msg.chat.id;
         const helpMsg = `🆘 সাহায্য:
@@ -228,7 +229,7 @@ Website: ${process.env.REPLIT_DOMAINS || 'http://localhost:5000'}`;
         bot.sendMessage(chatId, `📹 নতুন ভিডিও যোগ করতে এই ফরম্যাটে পাঠান:
 
 Title: ভিডিও টাইটেল
-File ID: Telegram File ID (আপনার বটকে Channel-এ অ্যাডমিন করার পর ভিডিও আপলোড করলে পাবেন)
+File ID: Telegram File ID (উপরে ভিডিও পাঠিয়ে আইডি ও সাইজ পেয়ে যাবেন)
 Size: ফাইলের সাইজ বাইটে (স্ট্রিমিং এর জন্য জরুরি, প্রায় 50000000)
 Thumb: Thumbnail URL (optional)
 Desc: বিবরণ (optional)
@@ -240,31 +241,63 @@ Size: 50000000
 Desc: This is an amazing movie`);
     });
 
-    // বট Regex আপডেট: File ID এবং Size ফিল্ড যোগ করা হলো
+    // বট Regex আপডেট: File ID এবং Size ফিল্ড যোগ করা হলো এবং Admin ID সেভ করা হলো
     bot.onText(/Title: (.+)\nFile ID: (.+)\nSize: (.+)(?:\nThumb: (.+))?(?:\nDesc: (.+))?/s, (msg, match) => {
         const chatId = msg.chat.id;
         if (!isAdmin(chatId)) return;
         
+        // কনসোলে লগ করুন যে কোন অ্যাডমিন ভিডিও যোগ করছেন
+        console.log(`🎬 ADMIN ACTION: Video added by Chat ID: ${chatId}`); 
+        
         const title = match[1];
         const telegram_file_id = match[2];
-        const size = parseInt(match[3]) || 0; // Size কে integer হিসেবে সেভ করা
+        const size = parseInt(match[3]) || 0; 
         const thumbnail = match[4] || null;
         const description = match[5] || '';
         
+        // নতুন ফিল্ড: অ্যাডমিনের আইডি সেভ করার জন্য
+        const addedBy = chatId.toString(); 
+
         const video = {
             id: Date.now(),
             title,
-            telegram_file_id, // File ID হিসেবে সেভ
+            telegram_file_id, 
             size,
             thumbnail,
             description,
             views: 0,
             category: 'movie',
-            addedAt: new Date().toISOString()
+            addedAt: new Date().toISOString(),
+            addedBy: addedBy // <-- অ্যাডমিনের আইডি সেভ করা হলো
         };
         
         videos.push(video);
-        bot.sendMessage(chatId, `✅ ভিডিও সফলভাবে যোগ করা হয়েছে!\n\n🎬 Title: ${title}\n🔗 File ID: ${telegram_file_id}\n📐 Size: ${size} bytes`);
+        // বট রিপ্লাই মেসেজে অ্যাডমিনের আইডি যুক্ত করা হলো
+        bot.sendMessage(chatId, `✅ ভিডিও সফলভাবে যোগ করা হয়েছে!\n\n🎬 Title: ${title}\n👤 Added By: ${addedBy}\n📐 Size: ${size} bytes`);
+    });
+
+    // ======================================================================
+    // নতুন ফিচার: ভিডিও পেলে ফাইল আইডি স্বয়ংক্রিয়ভাবে অ্যাডমিনকে জানানো 
+    // ======================================================================
+    bot.on('video', (msg) => {
+        const chatId = msg.chat.id;
+        
+        // শুধু অ্যাডমিনদের জন্য
+        if (isAdmin(chatId)) { 
+            const video = msg.video;
+            
+            // ফাইল আইডি, সাইজ এবং চ্যানেল আইডি অ্যাডমিন চ্যাটে রিপ্লাই করুন
+            const message = `📹 ভিডিও ডেটা পেলাম:\n\n` + 
+                            `**Title:** (ভিডিওর ক্যাপশন ব্যবহার করুন)\n` +
+                            `**File ID:** \n\`${video.file_id}\`\n` +
+                            `**Size:** ${video.file_size} bytes (প্রায় ${(video.file_size / 1024 / 1024).toFixed(2)} MB)\n\n` +
+                            `➡️ এই ডেটা কপি করে /addvideo কমান্ডে ব্যবহার করুন।`;
+            
+            bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+            
+            // কনসোল লগেও সেভ করুন (ডিবাগিং এর জন্য)
+            console.log(`[FILE DATA LOG] ID: ${video.file_id}, Size: ${video.file_size}`);
+        }
     });
 
     // ... (existing /listvideo, /removevideo, /stats logic) ...
@@ -282,10 +315,11 @@ Desc: This is an amazing movie`);
         
         let videoList = '📹 সব ভিডিও:\n\n';
         videos.forEach((video, index) => {
-            videoList += `${index + 1}. ${video.title}\n   ID: ${video.id}\n   Views: ${video.views}\n\n`;
+            // লিস্টে কে যোগ করেছে সেই তথ্য দেখানো
+            videoList += `${index + 1}. ${video.title}\n   **ID:** ${video.id}\n   Views: ${video.views}\n   Added By: ${video.addedBy || 'N/A'}\n\n`;
         });
         
-        bot.sendMessage(chatId, videoList);
+        bot.sendMessage(chatId, videoList, { parse_mode: 'Markdown' });
     });
 
     bot.onText(/\/removevideo (.+)/, (msg, match) => {
