@@ -12,8 +12,8 @@ function playVideoWithAds(videoUrl) {
     // Show loading
     loading.classList.remove("hidden");
     
-    // Reset midrolls for new video
-    midRollsTimes = [600, 900];
+    // Reset midrolls for new video: **নতুন করে অ্যারে তৈরি করা হলো**
+    midRollsTimes = [600, 900]; 
     adPlaying = false;
     currentVideo = videoUrl;
     
@@ -38,7 +38,8 @@ function playVideoWithAds(videoUrl) {
             }
             
             video.play();
-            setupMidRollTracking(video);
+            // মিড-রোল ট্র্যাকিং সেট আপ
+            setupMidRollTracking(video); 
             
             // Remove this specific listener after use
             video.removeEventListener('loadeddata', handleVideoLoaded);
@@ -56,29 +57,48 @@ function playVideoWithAds(videoUrl) {
 function setupMidRollTracking(video) {
     // Clear any existing event listeners to avoid duplicates
     video.removeEventListener("timeupdate", handleTimeUpdate);
-    video.addEventListener("timeupdate", handleTimeUpdate);
+    // **এখানে addEventListener এর দ্বিতীয় আর্গুমেন্ট হিসেবে false যোগ করা হয়েছে, যা ঐচ্ছিক হলেও ভালো প্র্যাকটিস**
+    video.addEventListener("timeupdate", handleTimeUpdate, false); 
 }
 
+
+// **পরিবর্তিত এবং স্থিতিশীল Mid-Roll লজিক**
 function handleTimeUpdate() {
     const video = document.getElementById("myVideo");
     
+    // যদি Ad চলছে বা ভিডিও না থাকে, তাহলে কিছুই করবে না
     if (adPlaying || !video) return;
     
-    // Check for mid-roll ads
-    midRollsTimes.forEach((time, index) => {
-        if (video.currentTime >= time && video.currentTime <= time + 1) {
+    // **Mid-roll array-কে লুপ করার জন্য নতুন Array তৈরি না করে filter ব্যবহার করা হয়েছে**
+    for (let i = 0; i < midRollsTimes.length; i++) {
+        const time = midRollsTimes[i];
+        
+        // যদি বর্তমান সময় Ad-এর সময়ের সমান বা বেশি হয়
+        if (video.currentTime >= time) {
+            
+            // সাথে সাথে Ad প্লে শুরু করুন
             adPlaying = true;
             video.pause();
             
             showMidRollAd(() => {
+                // Ad শেষ হলে
                 adPlaying = false;
                 video.play();
-                // Remove this midroll time so it doesn't trigger again
-                midRollsTimes.splice(index, 1);
+                
+                // **গুরুত্বপূর্ণ: ট্রিগার হওয়া Ad-এর সময় বাদ দিয়ে নতুন অ্যারে তৈরি করা হচ্ছে**
+                // splice-এর পরিবর্তে filter ব্যবহার করা হয়েছে, যা ইন্ডেক্সিং এর ত্রুটি রোধ করে
+                midRollsTimes = midRollsTimes.filter(t => t !== time);
+
             });
+            
+            // একবারে একটির বেশি Ad যাতে ট্রিগার না হয়, সেজন্য লুপ ব্রেক করুন
+            break; 
         }
-    });
+    }
 }
+// -----------------------------------------------------------------------------------
+// **নিম্নলিখিত ফাংশনগুলোতে কোনো পরিবর্তন করা হয়নি, যেহেতু সেগুলো ঠিক কাজ করছে**
+// -----------------------------------------------------------------------------------
 
 function showPreRollAd(callback) {
     const adContainer = document.getElementById("ad-overlay");
@@ -282,8 +302,7 @@ function showFallbackPopunder() {
 function trackAdInteraction(adType, action) {
     console.log(`Ad Interaction: ${adType} - ${action}`);
     // You can send this data to analytics
-    /* 
-    fetch('/api/ad-analytics', {
+    /* fetch('/api/ad-analytics', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({type: adType, action: action, timestamp: new Date()})
