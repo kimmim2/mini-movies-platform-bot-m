@@ -3,7 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const TelegramBot = require('node-telegram-bot-api');
 const path = require('path');
-const fetch = require('node-fetch'); // <-- Node-fetch লাইব্রেরি স্ট্রিমিং এর জন্য দরকার
+const fetch = require('node-fetch');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -14,7 +14,6 @@ app.use(express.json());
 app.use(express.static('public'));
 
 // Video storage (url field is replaced by telegram_file_id)
-// NOTE: For live streaming to work, you MUST use the /video/:id route
 let videos = [
     {
         id: 1,
@@ -47,7 +46,7 @@ let videos = [
 // Telegram Bot Setup - Only initialize if token is provided
 let bot = null;
 const adminChatIds = process.env.ADMIN_CHAT_IDS ? process.env.ADMIN_CHAT_IDS.split(',').map(id => id.trim()) : [];
-const PRIVATE_CHANNEL_ID = process.env.PRIVATE_CHANNEL_ID; // আপনার চ্যানেলের আইডি
+const PRIVATE_CHANNEL_ID = process.env.PRIVATE_CHANNEL_ID; 
 
 if (process.env.TELEGRAM_BOT_TOKEN) {
     bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
@@ -61,7 +60,9 @@ app.get('/', (req, res) => {
 });
 
 // ======================================================================
-// নতুন API: Private Channel Video Streaming Proxy
+// সংশোধিত API: Private Channel Video Streaming Proxy
+// ----------------------------------------------------------------------
+// এই রুটে Range Header হ্যান্ডলিং যুক্ত করা হয়েছে, যা ভিডিও প্লেব্যাক সমস্যার সমাধান করবে।
 // ======================================================================
 
 app.get('/video/:videoId', async (req, res) => {
@@ -79,44 +80,69 @@ app.get('/video/:videoId', async (req, res) => {
         telegramFileUrl = fileLinkResponse.href;
     } catch (error) {
         console.error('Error getting Telegram File Link:', error.message);
-        return res.status(500).send('Could not get file link from Telegram. Check if bot is admin in channel.');
+        return res.status(500).send('Could not get file link from Telegram. Check if bot token is valid and bot is admin in channel.');
     }
 
-    // ২. Range Header তৈরি করে Proxy Request পাঠান
-    try {
-        const headers = {};
-        if (req.headers.range) {
-            headers['Range'] = req.headers.range;
-        }
-
-        const fileResponse = await fetch(telegramFileUrl, { headers });
-
-        if (!fileResponse.ok) {
-            console.error(`Error fetching video from Telegram: ${fileResponse.statusText}`);
-            return res.status(500).send('Could not fetch video content from Telegram.');
-        }
-
-        // ৩. স্ট্রিমিং Header সেটআপ
-        const contentRange = fileResponse.headers.get('Content-Range');
-        const contentLength = fileResponse.headers.get('Content-Length');
-        const acceptRanges = fileResponse.headers.get('Accept-Ranges') || 'bytes';
-        const statusCode = fileResponse.status;
-        
-        // সমস্ত প্রয়োজনীয় header ক্লায়েন্টের কাছে ফেরত পাঠান
-        res.writeHead(statusCode, {
+    // ২. Range Header হ্যান্ডলিং (ভিডিও স্ট্রিমিং এর জন্য অপরিহার্য)
+    const range = req.headers.range;
+    if (!range) {
+        // যদি ক্লায়েন্ট Range হেডার না পাঠায়, তাহলে Full Content Header পাঠান (HTTP 200)
+        const headers = {
             'Content-Type': 'video/mp4',
-            'Content-Length': contentLength,
-            'Accept-Ranges': acceptRanges,
-            ...(contentRange && {'Content-Range': contentRange})
-        });
-
-        // ৪. Stream শুরু করুন
+            'Content-Length': videoData.size, // মোট ফাইলের সাইজ
+            'Accept-Ranges': 'bytes',
+        };
+        res.writeHead(200, headers);
+        
+        // সমস্ত ফাইলটি Fetch করে স্ট্রিম করুন
+        const fileResponse = await fetch(telegramFileUrl);
+        if (!fileResponse.ok) {
+             return res.status(500).send('Failed to fetch full video content from Telegram.');
+        }
         fileResponse.body.pipe(res);
-
-    } catch (error) {
-        console.error('Video Streaming Proxy Error:', error);
-        res.status(500).send('Internal server error during streaming proxy.');
+        return;
     }
+
+    // ৩. Range Header বিশ্লেষণ (যদি ক্লায়েন্ট আংশিক ডেটা চায় - HTTP 206)
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : videoData.size - 1;
+    
+    const chunksize = (end - start) + 1;
+    
+    // ৪. Telegram Fetch করার জন্য Range Header সেট করুন
+    const fetchHeaders = {
+        'Range': `bytes=${start}-${end}`
+    };
+
+    // ৫. Range সহ Telegram থেকে ডেটা Fetch করুন
+    const fileResponse = await fetch(telegramFileUrl, { headers: fetchHeaders });
+
+    if (!fileResponse.ok) {
+        console.error(`Error fetching video chunk from Telegram: ${fileResponse.statusText}`);
+        // Telegram 416 (Range Not Satisfiable) পাঠালে 416 ফেরত দিন
+        if (fileResponse.status === 416) {
+             return res.status(416).send('Range Not Satisfiable');
+        }
+        return res.status(500).send('Could not fetch video chunk from Telegram.');
+    }
+    
+    // ৬. ক্লায়েন্টের কাছে আংশিক কন্টেন্ট Header সেট করুন (HTTP 206)
+    const headers = {
+        'Content-Range': `bytes ${start}-${end}/${videoData.size}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunksize, // এই রেঞ্জের জন্য কন্টেন্টের সাইজ
+        'Content-Type': 'video/mp4',
+        // নিরাপত্তা: কন্টেন্ট ডাউনলোড না হয়ে প্লে হয় তা নিশ্চিত করে
+        'Content-Disposition': 'inline', 
+    };
+
+    // 206 Partial Content স্ট্যাটাস কোড সেট করুন
+    res.writeHead(206, headers);
+
+    // ৭. Stream শুরু করুন
+    fileResponse.body.pipe(res);
+
 });
 
 // ======================================================================
