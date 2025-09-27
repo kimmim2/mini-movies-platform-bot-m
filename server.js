@@ -218,7 +218,7 @@ Website: ${process.env.REPLIT_DOMAINS || 'http://localhost:5000'}`;
         bot.sendMessage(chatId, `🌐 Mini Movies Website: ${websiteUrl}`);
     });
 
-    // /addvideo কমান্ড আপডেট: এখন File ID এবং Size চাওয়া হবে
+    // /addvideo কমান্ড আপডেট: এখন File ID এবং Size চাওয়া হবে (MB বা Bytes-এ)
     bot.onText(/\/addvideo/, (msg) => {
         const chatId = msg.chat.id;
         if (!isAdmin(chatId)) {
@@ -230,14 +230,14 @@ Website: ${process.env.REPLIT_DOMAINS || 'http://localhost:5000'}`;
 
 Title: ভিডিও টাইটেল
 File ID: Telegram File ID (উপরে ভিডিও পাঠিয়ে আইডি ও সাইজ পেয়ে যাবেন)
-Size: ফাইলের সাইজ বাইটে (স্ট্রিমিং এর জন্য জরুরি, প্রায় 50000000)
+Size: ফাইলের সাইজ **MB বা Bytes-এ** (স্ট্রিমিং এর জন্য জরুরি, উদাহরণ: 50MB)
 Thumb: Thumbnail URL (optional)
 Desc: বিবরণ (optional)
 
 উদাহরণ:
 Title: Amazing Private Movie
 File ID: BAACAgIAAxkDAAI...
-Size: 50000000
+Size: 50MB
 Desc: This is an amazing movie`);
     });
 
@@ -251,10 +251,24 @@ Desc: This is an amazing movie`);
         
         const title = match[1];
         const telegram_file_id = match[2];
-        const size = parseInt(match[3]) || 0; 
+        const sizeInput = match[3]; // ইউজার যে ইনপুটটি দিয়েছে
         const thumbnail = match[4] || null;
         const description = match[5] || '';
         
+        let sizeInBytes = 0;
+        
+        // ✅ Size Conversion Logic: যদি "MB" বা "mb" লেখা থাকে, তবে এটিকে বাইটে রূপান্তর করুন
+        if (sizeInput.toLowerCase().includes('mb')) {
+            const sizeInMB = parseFloat(sizeInput.replace(/mb/i, '').trim());
+            if (!isNaN(sizeInMB)) {
+                // MB কে Bytes এ কনভার্ট করা: 1 MB = 1024 * 1024 bytes
+                sizeInBytes = Math.round(sizeInMB * 1024 * 1024);
+            }
+        } else {
+            // যদি MB লেখা না থাকে, তবে ধরে নেওয়া হবে এটি Bytes এ দেওয়া হয়েছে।
+            sizeInBytes = parseInt(sizeInput) || 0;
+        }
+
         // নতুন ফিল্ড: অ্যাডমিনের আইডি সেভ করার জন্য
         const addedBy = chatId.toString(); 
 
@@ -262,7 +276,7 @@ Desc: This is an amazing movie`);
             id: Date.now(),
             title,
             telegram_file_id, 
-            size,
+            size: sizeInBytes, // <-- কনভার্ট করা সাইজটি সেভ করা হলো
             thumbnail,
             description,
             views: 0,
@@ -272,8 +286,10 @@ Desc: This is an amazing movie`);
         };
         
         videos.push(video);
-        // বট রিপ্লাই মেসেজে অ্যাডমিনের আইডি যুক্ত করা হলো
-        bot.sendMessage(chatId, `✅ ভিডিও সফলভাবে যোগ করা হয়েছে!\n\n🎬 Title: ${title}\n👤 Added By: ${addedBy}\n📐 Size: ${size} bytes`);
+        
+        // বট রিপ্লাই মেসেজে অ্যাডমিনের আইডি এবং কনভার্ট করা সাইজ যুক্ত করা হলো
+        const displaySize = (sizeInBytes / 1024 / 1024).toFixed(2);
+        bot.sendMessage(chatId, `✅ ভিডিও সফলভাবে যোগ করা হয়েছে!\n\n🎬 Title: ${title}\n👤 Added By: ${addedBy}\n📐 Converted Size: ${displaySize} MB (${sizeInBytes} bytes)`);
     });
 
     // ======================================================================
@@ -316,7 +332,8 @@ Desc: This is an amazing movie`);
         let videoList = '📹 সব ভিডিও:\n\n';
         videos.forEach((video, index) => {
             // লিস্টে কে যোগ করেছে সেই তথ্য দেখানো
-            videoList += `${index + 1}. ${video.title}\n   **ID:** ${video.id}\n   Views: ${video.views}\n   Added By: ${video.addedBy || 'N/A'}\n\n`;
+            const displaySize = (video.size / 1024 / 1024).toFixed(2);
+            videoList += `${index + 1}. ${video.title}\n   **ID:** ${video.id}\n   Views: ${video.views}\n   Added By: ${video.addedBy || 'N/A'}\n   Size: ${displaySize} MB\n\n`;
         });
         
         bot.sendMessage(chatId, videoList, { parse_mode: 'Markdown' });
