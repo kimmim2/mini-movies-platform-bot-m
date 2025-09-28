@@ -256,7 +256,7 @@ Website: ${process.env.REPLIT_DOMAINS || 'http://localhost:5000'}`;
 
 Title: ভিডিও টাইটেল
 File ID: Telegram File ID (উপরে ভিডিও পাঠিয়ে আইডি ও সাইজ পেয়ে যাবেন)
-Size: ফাইলের সাইজ **MB বা Bytes-এ** (স্ট্রিমিং এর জন্য জরুরি, উদাহরণ: 50MB)
+Size: ফাইলের সাইজ **MB বা Bytes-এ** (স্ট্রিমিং এর জন্য জরুরি, উদাহরণ: 50MB, অথবা শুধু 87120150)
 Thumb: Thumbnail URL (optional)
 Desc: বিবরণ (optional)
 
@@ -283,17 +283,32 @@ Desc: This is an amazing movie`);
         
         let sizeInBytes = 0;
         
-        // ✅ Size Conversion Logic: যদি "MB" বা "mb" লেখা থাকে, তবে এটিকে বাইটে রূপান্তর করুন
-        if (sizeInput.toLowerCase().includes('mb')) {
-            const sizeInMB = parseFloat(sizeInput.replace(/mb/i, '').trim());
+        // ======================================================================
+        // ✅ সংশোধিত Size Conversion Logic (যাতে ভুল না হয়)
+        // ======================================================================
+        const sizeString = sizeInput.toLowerCase().trim();
+        
+        if (sizeString.includes('mb')) {
+            // যদি ইউজার "MB" ব্যবহার করে, তবে এটিকে MB হিসেবে গণ্য করুন
+            const sizeInMB = parseFloat(sizeString.replace(/mb/i, '').trim());
             if (!isNaN(sizeInMB)) {
-                // MB কে Bytes এ কনভার্ট করা: 1 MB = 1024 * 1024 bytes
                 sizeInBytes = Math.round(sizeInMB * 1024 * 1024);
             }
-        } else {
-            // যদি MB লেখা না থাকে, তবে ধরে নেওয়া হবে এটি Bytes এ দেওয়া হয়েছে।
+        } else if (sizeString.includes('bytes')) {
+             // যদি ইউজার "bytes" ব্যবহার করে, তবে এটিকে Bytes হিসেবে গণ্য করুন
+            const bytesMatch = sizeString.match(/(\d+)/);
+            if (bytesMatch && bytesMatch[1]) {
+                sizeInBytes = parseInt(bytesMatch[1]);
+            }
+        } 
+        else {
+            // যদি "MB" বা "bytes" কোনোটিই না থাকে, তবে ধরে নেওয়া হবে এটি সরাসরি Bytes সংখ্যা
             sizeInBytes = parseInt(sizeInput) || 0;
         }
+        // ======================================================================
+        // ✅ সংশোধিত Size Conversion Logic শেষ
+        // ======================================================================
+
 
         // নতুন ফিল্ড: অ্যাডমিনের আইডি সেভ করার জন্য
         const addedBy = chatId.toString(); 
